@@ -1,7 +1,7 @@
 package jlox;
 
 /** Lexical categories recognized by the Lox scanner. */
-enum TokenType {
+public enum TokenType {
   // Single-character punctuation and arithmetic operators.
   LEFT_PAREN, RIGHT_PAREN, LEFT_BRACE, RIGHT_BRACE,
   COMMA, DOT, MINUS, PLUS, SEMICOLON, SLASH, STAR,
