@@ -1,28 +1,51 @@
 package jlox;
 
+import java.util.List;
+
 import jlox.ast.Binary;
 import jlox.ast.Expr;
 import jlox.ast.Grouping;
 import jlox.ast.Literal;
+import jlox.ast.Stmt;
 import jlox.ast.Unary;
 
 class Interpreter {
 
   // --- THE PUBLIC API ---
 
-  void interpret(Expr expression) {
+  void interpret(List<Stmt> statements) {
     try {
-      Object value = evaluate(expression);
-      System.out.println(stringify(value));
+      for (Stmt statement : statements) {
+        execute(statement);
+      }
     } catch (RuntimeError error) {
       Lox.runtimeError(error);
     }
   }
 
+  // --- STATEMENT EXECUTOR (No Visitor Pattern) ---
+
+  private void execute(Stmt stmt) {
+    // 1. PRINT STATEMENT
+    if (stmt instanceof Stmt.Print) {
+      Stmt.Print printStmt = (Stmt.Print) stmt;
+      Object value = evaluate(printStmt.expression);
+      System.out.println(stringify(value));
+      return;
+    }
+
+    // 2. EXPRESSION STATEMENT
+    if (stmt instanceof Stmt.Expression) {
+      Stmt.Expression exprStmt = (Stmt.Expression) stmt;
+      evaluate(exprStmt.expression);
+      return;
+    }
+  }
+
   // --- THE CORE EVALUATOR (No Visitor Pattern) ---
-  
+
   Object evaluate(Expr expr) {
-    
+
     // 1. LITERALS
     if (expr instanceof Literal) {
       return ((Literal) expr).value;
@@ -86,10 +109,12 @@ class Interpreter {
         case LESS_EQUAL:
           checkNumberOperands(binary.operator, left, right);
           return (double) left <= (double) right;
-          
+
         // Equality
-        case BANG_EQUAL: return !isEqual(left, right);
-        case EQUAL_EQUAL: return isEqual(left, right);
+        case BANG_EQUAL:
+          return !isEqual(left, right);
+        case EQUAL_EQUAL:
+          return isEqual(left, right);
       }
     }
 
@@ -100,33 +125,40 @@ class Interpreter {
   // --- TYPE CHECKERS (Runtime Error Guards) ---
 
   private void checkNumberOperand(Token operator, Object operand) {
-    if (operand instanceof Double) return;
+    if (operand instanceof Double)
+      return;
     throw new RuntimeError(operator, "Operand must be a number.");
   }
 
   private void checkNumberOperands(Token operator, Object left, Object right) {
-    if (left instanceof Double && right instanceof Double) return;
+    if (left instanceof Double && right instanceof Double)
+      return;
     throw new RuntimeError(operator, "Operands must be numbers.");
   }
 
   // --- LOX SEMANTICS RULES ---
 
   private boolean isTruthy(Object object) {
-    if (object == null) return false;
-    if (object instanceof Boolean) return (boolean) object;
+    if (object == null)
+      return false;
+    if (object instanceof Boolean)
+      return (boolean) object;
     return true;
   }
 
   private boolean isEqual(Object a, Object b) {
-    if (a == null && b == null) return true;
-    if (a == null) return false;
+    if (a == null && b == null)
+      return true;
+    if (a == null)
+      return false;
     return a.equals(b);
   }
 
   // --- OUTPUT FORMATTING ---
 
   private String stringify(Object object) {
-    if (object == null) return "nil";
+    if (object == null)
+      return "nil";
 
     if (object instanceof Double) {
       String text = object.toString();

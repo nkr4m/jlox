@@ -8,7 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.List;
 
-import jlox.ast.Expr;
+import jlox.ast.Stmt; // <-- Import Stmt instead of Expr
 
 /**
  * Command-line entry point for the Lox interpreter.
@@ -58,29 +58,26 @@ public class Lox {
   }
 
   private static void run(String source) {
-	    // 1. SCANNER: Text -> Tokens
-	    Scanner scanner = new Scanner(source);
-	    List<Token> tokens = scanner.scanTokens();
-	    
-	    System.out.println("--- TOKENS ---");
-	    for(Token t : tokens) {
-	      System.out.println(t);
-	    }
+    // 1. SCANNER: Text -> Tokens
+    Scanner scanner = new Scanner(source);
+    List<Token> tokens = scanner.scanTokens();
+    
+    System.out.println("--- TOKENS ---");
+    for(Token t : tokens) {
+      System.out.println(t);
+    }
 
-	    // 2. PARSER: Tokens -> AST
-	    Parser parser = new Parser(tokens);
-	    Expr expression = parser.parse();
+    // 2. PARSER: Tokens -> AST (Now a List of Statements!)
+    Parser parser = new Parser(tokens);
+    List<Stmt> statements = parser.parse();
 
-	    if (hadError) return;
+    // Stop if there was a syntax error
+    if (hadError) return;
 
-	    System.out.println("\n--- AST TREE ---");
-	    // (Assuming you still have the AstPrinter class from Chapter 5)
-	    System.out.println(new AstPrinter().print(expression));
-
-	    // 3. INTERPRETER: AST -> Final Value
-	    System.out.println("\n--- RESULT ---");
-	    interpreter.interpret(expression);
-	  }
+    // 3. INTERPRETER: AST -> Final Value
+    System.out.println("\n--- RESULT ---");
+    interpreter.interpret(statements); // <-- Pass the list to the interpreter!
+  }
 
   // --- ERROR HANDLING ---
 
