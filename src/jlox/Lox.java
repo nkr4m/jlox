@@ -8,22 +8,18 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.List;
 
+import jlox.ast.Expr;
+
 /**
  * Command-line entry point for the Lox interpreter.
- *
- * <p>This stage of the interpreter scans source code and prints its tokens;
- * parsing and evaluation are added by later stages.
  */
 public class Lox {
-  /** Tracks whether the current script run reported an error. */
+  // --- THE GLOBAL INTERPRETER INSTANCE ---
+  private static final Interpreter interpreter = new Interpreter();
+  
   static boolean hadError = false;
+  static boolean hadRuntimeError = false; // Tracks if the code crashed while running
 
-  /**
-   * Selects script execution or the interactive prompt from the arguments.
-   *
-   * @param args zero arguments to start the prompt, or one script path
-   * @throws IOException if reading the script or prompt input fails
-   */
   public static void main(String[] args) throws IOException {
     if (args.length > 1) {
       System.out.println("Usage: jlox [script]");
@@ -35,21 +31,16 @@ public class Lox {
     }
   }
 
-  /** Reads and scans a script, using a nonzero exit status if scanning failed. */
   private static void runFile(String path) throws IOException {
     byte[] bytes = Files.readAllBytes(Paths.get(path));
     run(new String(bytes, Charset.defaultCharset()));
     
-    // Indicate an error in the exit code.
+    // Syntax error exit code
     if (hadError) System.exit(65);
+    // Runtime error exit code
+    if (hadRuntimeError) System.exit(70);
   }
 
-  /**
-   * Reads and scans one line at a time.
-   *
-   * <p>An error only affects the current line, so the prompt remains usable
-   * after reporting it.
-   */
   private static void runPrompt() throws IOException {
     InputStreamReader input = new InputStreamReader(System.in);
     BufferedReader reader = new BufferedReader(input);
@@ -60,28 +51,59 @@ public class Lox {
       if (line == null) break;
       run(line);
       
-      // Reset the error flag in the interactive loop so it doesn't kill the entire session.
+      // Reset BOTH error flags in the interactive loop so it doesn't kill the session.
       hadError = false;
+      hadRuntimeError = false;
     }
   }
 
-  /** Converts source text into tokens and prints them for inspection. */
   private static void run(String source) {
-    Scanner scanner = new Scanner(source);
-    List<Token> tokens = scanner.scanTokens();
+	    // 1. SCANNER: Text -> Tokens
+	    Scanner scanner = new Scanner(source);
+	    List<Token> tokens = scanner.scanTokens();
+	    
+	    System.out.println("--- TOKENS ---");
+	    for(Token t : tokens) {
+	      System.out.println(t);
+	    }
 
-    // For now, just print the tokens to verify the scanner works.
-    for (Token token : tokens) {
-      System.out.println(token);
-    }
-  }
+	    // 2. PARSER: Tokens -> AST
+	    Parser parser = new Parser(tokens);
+	    Expr expression = parser.parse();
 
-  /** Reports an error that is not associated with a particular lexeme. */
+	    if (hadError) return;
+
+	    System.out.println("\n--- AST TREE ---");
+	    // (Assuming you still have the AstPrinter class from Chapter 5)
+	    System.out.println(new AstPrinter().print(expression));
+
+	    // 3. INTERPRETER: AST -> Final Value
+	    System.out.println("\n--- RESULT ---");
+	    interpreter.interpret(expression);
+	  }
+
+  // --- ERROR HANDLING ---
+
+  // Used by the Scanner
   static void error(int line, String message) {
     report(line, "", message);
   }
 
-  /** Prints a diagnostic and records that this run encountered an error. */
+  // Used by the Parser
+  static void error(Token token, String message) {
+    if (token.type == TokenType.EOF) {
+      report(token.line, " at end", message);
+    } else {
+      report(token.line, " at '" + token.lexeme + "'", message);
+    }
+  }
+
+  // Used by the Interpreter
+  static void runtimeError(RuntimeError error) {
+    System.err.println(error.getMessage() + "\n[line " + error.operator.line + "]");
+    hadRuntimeError = true;
+  }
+
   private static void report(int line, String where, String message) {
     System.err.println("[line " + line + "] Error" + where + ": " + message);
     hadError = true;

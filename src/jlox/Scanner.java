@@ -75,85 +75,74 @@ class Scanner {
 
   /** Consumes one character and dispatches based on its lexical category. */
   private void scanToken() {
-    char c = advance();
-    switch (c) {
-      case '(':
-        addToken(TokenType.LEFT_PAREN);
-        break;
-      case ')':
-        addToken(TokenType.RIGHT_PAREN);
-        break;
-      case '{':
-        addToken(TokenType.LEFT_BRACE);
-        break;
-      case '}':
-        addToken(TokenType.RIGHT_BRACE);
-        break;
-      case ',':
-        addToken(TokenType.COMMA);
-        break;
-      case '.':
-        addToken(TokenType.DOT);
-        break;
-      case '-':
-        addToken(TokenType.MINUS);
-        break;
-      case '+':
-        addToken(TokenType.PLUS);
-        break;
-      case ';':
-        addToken(TokenType.SEMICOLON);
-        break;
-      case '*':
-        addToken(TokenType.STAR);
-        break;
-      // add multi-character operators and literals
-      case '!':
-        addToken(match('=') ? TokenType.BANG_EQUAL : TokenType.BANG);
-        break;
-      case '=':
-        addToken(match('=') ? TokenType.EQUAL_EQUAL : TokenType.EQUAL);
-        break;
-      case '<':
-        addToken(match('=') ? TokenType.LESS_EQUAL : TokenType.LESS);
-        break;
-      case '>':
-        addToken(match('=') ? TokenType.GREATER_EQUAL : TokenType.GREATER);
-        break;
-      case '/':
-        if (match('/')) {
-          // Line comments are discarded; the newline is handled on the next scan.
-          while (peek() != '\n' && !isAtEnd())
-            advance();
-        } else {
-          addToken(TokenType.SLASH);
-        }
-        break;
+	    char c = advance();
+	    switch (c) {
+	      // Single-character tokens
+	      case '(' -> addToken(TokenType.LEFT_PAREN);
+	      case ')' -> addToken(TokenType.RIGHT_PAREN);
+	      case '{' -> addToken(TokenType.LEFT_BRACE);
+	      case '}' -> addToken(TokenType.RIGHT_BRACE);
+	      case ',' -> addToken(TokenType.COMMA);
+	      case '.' -> addToken(TokenType.DOT);
+	      case '-' -> addToken(TokenType.MINUS);
+	      case '+' -> addToken(TokenType.PLUS);
+	      case ';' -> addToken(TokenType.SEMICOLON);
+	      case '*' -> addToken(TokenType.STAR);
 
-      case ' ':
-      case '\r':
-      case '\t':
-        // Ignore whitespace.
-        break;
+	      // One or two character tokens
+	      case '!' -> addToken(match('=') ? TokenType.BANG_EQUAL : TokenType.BANG);
+	      case '=' -> addToken(match('=') ? TokenType.EQUAL_EQUAL : TokenType.EQUAL);
+	      case '<' -> addToken(match('=') ? TokenType.LESS_EQUAL : TokenType.LESS);
+	      case '>' -> addToken(match('=') ? TokenType.GREATER_EQUAL : TokenType.GREATER);
+	      
+	      // Slashes (Division vs Comments)
+	      case '/' -> {
+	        if (match('/')) {
+	          // A comment goes until the end of the line
+	          while (peek() != '\n' && !isAtEnd()) advance();
+	        } else {
+	          addToken(TokenType.SLASH);
+	        }
+	      }
 
-      case '\n':
-        line++;
-        break;
-      case '"':
-        string();
-        break;
-      default:
-        if (isDigit(c)) {
-          number();
-        } else if (isAlpha(c)) {
-          identifier();
-        } else {
-          System.err.println(line + ": Unexpected character.");
-        }
-        break;
+	      // Whitespace
+	      case ' ', '\r', '\t' -> {} // Do nothing, just ignore it
+	      case '\n' -> line++;
 
-    }
-  }
+	      // Strings
+	      case '"' -> string();
+
+	      // Numbers, Identifiers, and Errors
+	      default -> {
+	        if (isDigit(c)) {
+	          number();
+	        } else if (isAlpha(c)) {
+	          identifier();
+	        } else {
+	          Lox.error(line, "Unexpected character."); // <-- Fixed to flag the error!
+	        }
+	      }
+	    }
+	  }
+
+	  private void string() {
+	    while (peek() != '"' && !isAtEnd()) {
+	      if (peek() == '\n') line++;
+	      advance();
+	    }
+
+	    if (isAtEnd()) {
+	      Lox.error(line, "Unterminated string."); // <-- Fixed to flag the error!
+	      return;
+	    }
+
+	    // The closing ".
+	    advance();
+
+	    // Trim the surrounding quotes.
+	    String value = source.substring(start + 1, current - 1);
+	    addToken(TokenType.STRING, value);
+	  }
 
   /** Consumes and returns the character at the cursor. */
   private char advance() {
@@ -187,31 +176,6 @@ class Scanner {
     if (isAtEnd())
       return '\0';
     return source.charAt(current);
-  }
-
-  /**
-   * Scans a quoted string, preserving its contents as the literal value.
-   *
-   * <p>Newlines inside a string advance the line counter. An unterminated
-   * string is reported and does not produce a token.
-   */
-  private void string() {
-    while (peek() != '"' && !isAtEnd()) {
-      if (peek() == '\n')
-        line++;
-      advance();
-    }
-
-    if (isAtEnd()) {
-      System.err.println(line + ": Unterminated string.");
-      return;
-    }
-
-    // Include the closing quote in the lexeme, but not in the literal value.
-    advance();
-
-    String value = source.substring(start + 1, current - 1);
-    addToken(TokenType.STRING, value);
   }
 
   /** Returns whether a character is an ASCII decimal digit. */
