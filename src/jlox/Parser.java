@@ -3,16 +3,16 @@ package jlox;
 import java.util.ArrayList;
 import java.util.List;
 
+import jlox.ast.Assign;
 import jlox.ast.Binary;
 import jlox.ast.Expr;
 import jlox.ast.Grouping;
 import jlox.ast.Literal;
-import jlox.ast.Stmt; // <-- New Import!
+import jlox.ast.Stmt;
 import jlox.ast.Unary;
+import jlox.ast.Variable;
 
 class Parser {
-  // A custom exception used to escape deep recursive calls when syntax is
-  // invalid.
   private static class ParseError extends RuntimeException {
   }
 
@@ -23,16 +23,14 @@ class Parser {
     this.tokens = tokens;
   }
 
-  // --- THE IGNITION SWITCH (Updated for Statements) ---
-
+  // --- THE IGNITION SWITCH ---
   List<Stmt> parse() {
     List<Stmt> statements = new ArrayList<>();
 
     while (!isAtEnd()) {
       try {
-        statements.add(statement());
+        statements.add(declaration());
       } catch (ParseError error) {
-        // If one statement fails, synchronize and try to parse the next one!
         synchronize();
       }
     }
@@ -40,38 +38,71 @@ class Parser {
     return statements;
   }
 
-  // --- STATEMENT GRAMMAR RULES ---
+  // --- DECLARATIONS & STATEMENTS ---
+  private Stmt declaration() {
+    if (match(TokenType.VAR))
+      return varDeclaration();
+    return statement();
+  }
 
-  // rule: statement -> printStmt | exprStmt ;
+  private Stmt varDeclaration() {
+    Token name = consume(TokenType.IDENTIFIER, "Expect variable name.");
+
+    Expr initializer = null;
+    if (match(TokenType.EQUAL)) {
+      initializer = expression();
+    }
+
+    consume(TokenType.SEMICOLON, "Expect ';' after variable declaration.");
+    return new Stmt.Var(name, initializer);
+  }
+
   private Stmt statement() {
     if (match(TokenType.PRINT))
       return printStatement();
 
+    // NEW: Check for a block!
+    if (match(TokenType.LEFT_BRACE))
+      return new Stmt.Block(block());
+
     return expressionStatement();
   }
 
-  // rule: printStmt -> "print" expression ";" ;
   private Stmt printStatement() {
     Expr value = expression();
     consume(TokenType.SEMICOLON, "Expect ';' after value.");
     return new Stmt.Print(value);
   }
 
-  // rule: exprStmt -> expression ";" ;
   private Stmt expressionStatement() {
     Expr expr = expression();
     consume(TokenType.SEMICOLON, "Expect ';' after expression.");
     return new Stmt.Expression(expr);
   }
 
-  // --- EXPRESSION RECURSIVE DESCENT GRAMMAR RULES ---
-
-  // rule: expression -> equality ;
+  // --- EXPRESSIONS ---
   private Expr expression() {
-    return equality();
+    return assignment();
   }
 
-  // rule: equality -> comparison ( ( "!=" | "==" ) comparison )* ;
+  private Expr assignment() {
+    Expr expr = equality();
+
+    if (match(TokenType.EQUAL)) {
+      Token equals = previous();
+      Expr value = assignment(); // Recursive call allows a = b = 5;
+
+      if (expr instanceof Variable) {
+        Token name = ((Variable) expr).name;
+        return new Assign(name, value);
+      }
+
+      error(equals, "Invalid assignment target.");
+    }
+
+    return expr;
+  }
+
   private Expr equality() {
     Expr expr = comparison();
 
@@ -84,7 +115,6 @@ class Parser {
     return expr;
   }
 
-  // rule: comparison -> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
   private Expr comparison() {
     Expr expr = term();
 
@@ -97,7 +127,6 @@ class Parser {
     return expr;
   }
 
-  // rule: term -> factor ( ( "-" | "+" ) factor )* ;
   private Expr term() {
     Expr expr = factor();
 
@@ -110,7 +139,6 @@ class Parser {
     return expr;
   }
 
-  // rule: factor -> unary ( ( "/" | "*" ) unary )* ;
   private Expr factor() {
     Expr expr = unary();
 
@@ -123,7 +151,6 @@ class Parser {
     return expr;
   }
 
-  // rule: unary -> ( "!" | "-" ) unary | primary ;
   private Expr unary() {
     if (match(TokenType.BANG, TokenType.MINUS)) {
       Token operator = previous();
@@ -134,8 +161,6 @@ class Parser {
     return primary();
   }
 
-  // rule: primary -> NUMBER | STRING | "true" | "false" | "nil" | "(" expression
-  // ")" ;
   private Expr primary() {
     if (match(TokenType.FALSE))
       return new Literal(false);
@@ -148,6 +173,11 @@ class Parser {
       return new Literal(previous().literal);
     }
 
+    // Read variable identifiers!
+    if (match(TokenType.IDENTIFIER)) {
+      return new Variable(previous());
+    }
+
     if (match(TokenType.LEFT_PAREN)) {
       Expr expr = expression();
       consume(TokenType.RIGHT_PAREN, "Expect ')' after expression.");
@@ -157,8 +187,7 @@ class Parser {
     throw error(peek(), "Expect expression.");
   }
 
-  // --- THE POINTER MECHANICS (Safe Array Navigators) ---
-
+  // --- THE POINTER MECHANICS ---
   private boolean match(TokenType... types) {
     for (TokenType type : types) {
       if (check(type)) {
@@ -199,8 +228,19 @@ class Parser {
     return tokens.get(current - 1);
   }
 
-  // --- ERROR HANDLING & RECOVERY ---
+  private List<Stmt> block() {
+    List<Stmt> statements = new ArrayList<>();
 
+    // Keep parsing declarations until we hit the closing '}' or run out of file
+    while (!check(TokenType.RIGHT_BRACE) && !isAtEnd()) {
+      statements.add(declaration());
+    }
+
+    consume(TokenType.RIGHT_BRACE, "Expect '}' after block.");
+    return statements;
+  }
+
+  // --- ERROR HANDLING ---
   private ParseError error(Token token, String message) {
     Lox.error(token, message);
     return new ParseError();

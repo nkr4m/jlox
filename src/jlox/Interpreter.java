@@ -2,17 +2,21 @@ package jlox;
 
 import java.util.List;
 
+import jlox.ast.Assign;
 import jlox.ast.Binary;
 import jlox.ast.Expr;
 import jlox.ast.Grouping;
 import jlox.ast.Literal;
 import jlox.ast.Stmt;
 import jlox.ast.Unary;
+import jlox.ast.Variable;
 
 class Interpreter {
 
-  // --- THE PUBLIC API ---
+  // --- THE GLOBAL MEMORY ---
+  private Environment environment = new Environment();
 
+  // --- THE PUBLIC API ---
   void interpret(List<Stmt> statements) {
     try {
       for (Stmt statement : statements) {
@@ -24,26 +28,48 @@ class Interpreter {
   }
 
   // --- STATEMENT EXECUTOR (No Visitor Pattern) ---
-
   private void execute(Stmt stmt) {
-    // 1. PRINT STATEMENT
     if (stmt instanceof Stmt.Print) {
-      Stmt.Print printStmt = (Stmt.Print) stmt;
-      Object value = evaluate(printStmt.expression);
-      System.out.println(stringify(value));
+      // ... existing code
+      return;
+    }
+    if (stmt instanceof Stmt.Var) {
+      // ... existing code
+      return;
+    }
+    if (stmt instanceof Stmt.Expression) {
+      // ... existing code
       return;
     }
 
-    // 2. EXPRESSION STATEMENT
-    if (stmt instanceof Stmt.Expression) {
-      Stmt.Expression exprStmt = (Stmt.Expression) stmt;
-      evaluate(exprStmt.expression);
+    // NEW: Route the Block node!
+    if (stmt instanceof Stmt.Block) {
+      // Create a brand new local Environment, passing the current global/parent one
+      // into the constructor
+      executeBlock(((Stmt.Block) stmt).statements, new Environment(this.environment));
       return;
     }
   }
 
-  // --- THE CORE EVALUATOR (No Visitor Pattern) ---
+  void executeBlock(List<Stmt> statements, Environment environment) {
+    // 1. Save a pointer to the current (outer) environment
+    Environment previous = this.environment;
 
+    try {
+      // 2. Swap the active environment to the new local one
+      this.environment = environment;
+
+      // 3. Execute all statements inside the block
+      for (Stmt statement : statements) {
+        execute(statement);
+      }
+    } finally {
+      // 4. Restore the outer environment when the block ends
+      this.environment = previous;
+    }
+  }
+
+  // --- THE CORE EVALUATOR (No Visitor Pattern) ---
   Object evaluate(Expr expr) {
 
     // 1. LITERALS
@@ -56,7 +82,20 @@ class Interpreter {
       return evaluate(((Grouping) expr).expression);
     }
 
-    // 3. UNARY
+    // 3. VARIABLE ACCESS (print a;)
+    if (expr instanceof Variable) {
+      return environment.get(((Variable) expr).name);
+    }
+
+    // 4. VARIABLE ASSIGNMENT (a = 2;)
+    if (expr instanceof Assign) {
+      Assign assignExpr = (Assign) expr;
+      Object value = evaluate(assignExpr.value);
+      environment.assign(assignExpr.name, value);
+      return value;
+    }
+
+    // 5. UNARY
     if (expr instanceof Unary) {
       Unary unary = (Unary) expr;
       Object right = evaluate(unary.right);
@@ -70,14 +109,13 @@ class Interpreter {
       }
     }
 
-    // 4. BINARY
+    // 6. BINARY
     if (expr instanceof Binary) {
       Binary binary = (Binary) expr;
       Object left = evaluate(binary.left);
       Object right = evaluate(binary.right);
 
       switch (binary.operator.type) {
-        // Math Operations
         case MINUS:
           checkNumberOperands(binary.operator, left, right);
           return (double) left - (double) right;
@@ -95,8 +133,6 @@ class Interpreter {
             return (String) left + (String) right;
           }
           throw new RuntimeError(binary.operator, "Operands must be two numbers or two strings.");
-
-        // Comparisons
         case GREATER:
           checkNumberOperands(binary.operator, left, right);
           return (double) left > (double) right;
@@ -109,8 +145,6 @@ class Interpreter {
         case LESS_EQUAL:
           checkNumberOperands(binary.operator, left, right);
           return (double) left <= (double) right;
-
-        // Equality
         case BANG_EQUAL:
           return !isEqual(left, right);
         case EQUAL_EQUAL:
@@ -118,12 +152,10 @@ class Interpreter {
       }
     }
 
-    // Unreachable if the parser did its job
     return null;
   }
 
   // --- TYPE CHECKERS (Runtime Error Guards) ---
-
   private void checkNumberOperand(Token operator, Object operand) {
     if (operand instanceof Double)
       return;
@@ -137,7 +169,6 @@ class Interpreter {
   }
 
   // --- LOX SEMANTICS RULES ---
-
   private boolean isTruthy(Object object) {
     if (object == null)
       return false;
@@ -155,11 +186,9 @@ class Interpreter {
   }
 
   // --- OUTPUT FORMATTING ---
-
   private String stringify(Object object) {
     if (object == null)
       return "nil";
-
     if (object instanceof Double) {
       String text = object.toString();
       if (text.endsWith(".0")) {
@@ -167,7 +196,6 @@ class Interpreter {
       }
       return text;
     }
-
     return object.toString();
   }
 }

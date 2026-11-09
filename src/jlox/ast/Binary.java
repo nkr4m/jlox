@@ -1,5 +1,4 @@
 package jlox.ast;
-
 import jlox.Token;
 
 public class Binary extends Expr {
@@ -11,10 +10,5 @@ public class Binary extends Expr {
     this.left = left;
     this.operator = operator;
     this.right = right;
-  }
-
-  @Override
-  public <R> R accept(ExprVisitor<R> visitor) {
-    return visitor.visit(this);
   }
 }
