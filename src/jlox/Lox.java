@@ -58,26 +58,25 @@ public class Lox {
   }
 
   private static void run(String source) {
-    // 1. SCANNER: Text -> Tokens
-    Scanner scanner = new Scanner(source);
-    List<Token> tokens = scanner.scanTokens();
-    
-    System.out.println("--- TOKENS ---");
-    for(Token t : tokens) {
-      System.out.println(t);
-    }
+	    Scanner scanner = new Scanner(source);
+	    List<Token> tokens = scanner.scanTokens();
 
-    // 2. PARSER: Tokens -> AST (Now a List of Statements!)
-    Parser parser = new Parser(tokens);
-    List<Stmt> statements = parser.parse();
+	    Parser parser = new Parser(tokens);
+	    List<Stmt> statements = parser.parse();
 
-    // Stop if there was a syntax error
-    if (hadError) return;
+	    // Stop if there was a syntax error
+	    if (hadError) return;
 
-    // 3. INTERPRETER: AST -> Final Value
-    System.out.println("\n--- RESULT ---");
-    interpreter.interpret(statements); // <-- Pass the list to the interpreter!
-  }
+	    // --- NEW: THE STATIC ANALYSIS PHASE ---
+	    Resolver resolver = new Resolver(interpreter);
+	    resolver.resolve(statements);
+
+	    // Stop if there was a resolution error
+	    if (hadError) return;
+	    // --------------------------------------
+
+	    interpreter.interpret(statements);
+	  }
 
   // --- ERROR HANDLING ---
 

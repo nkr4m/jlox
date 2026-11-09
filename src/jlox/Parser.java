@@ -42,10 +42,8 @@ class Parser {
 
   // --- DECLARATIONS & STATEMENTS ---
   private Stmt declaration() {
-    if (match(TokenType.FUN))
-      return function("function"); // NEW
-    if (match(TokenType.VAR))
-      return varDeclaration();
+    if (match(TokenType.FUN)) return function("function");
+    if (match(TokenType.VAR)) return varDeclaration();
     return statement();
   }
 

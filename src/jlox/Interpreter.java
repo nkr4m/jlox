@@ -1,7 +1,9 @@
 package jlox;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import jlox.ast.Assign;
 import jlox.ast.Binary;
@@ -20,7 +22,14 @@ class Interpreter {
   public final Environment globals = new Environment();
   private Environment environment = globals;
 
-  // NEW: Constructor to inject native functions
+  // Stores the calculated hop distances from the Resolver
+  private final Map<Expr, Integer> locals = new HashMap<>();
+
+  public void resolve(Expr expr, int depth) {
+    locals.put(expr, depth);
+  }
+
+  // Constructor to inject native functions
   public Interpreter() {
     globals.define("clock", new LoxCallable() {
       @Override
@@ -53,23 +62,20 @@ class Interpreter {
 
   private void execute(Stmt stmt) {
 
-    // NEW: Route Function Declarations
+    // Route Function Declarations
     if (stmt instanceof Stmt.Function) {
       Stmt.Function function = (Stmt.Function) stmt;
-      // Wrap the AST node and capture the current environment (closure)
       LoxFunction loxFunction = new LoxFunction(function, this.environment);
-      // Store the function in memory under its name
       environment.define(function.name.lexeme, loxFunction);
       return;
     }
 
-    // NEW: Route Return Statements
+    // Route Return Statements
     if (stmt instanceof Stmt.Return) {
       Object value = null;
       if (((Stmt.Return) stmt).value != null) {
         value = evaluate(((Stmt.Return) stmt).value);
       }
-      // Fire the Exception to instantly break out of execution
       throw new Return(value);
     }
 
@@ -80,7 +86,6 @@ class Interpreter {
 
     if (stmt instanceof Stmt.If) {
       Stmt.If ifStmt = (Stmt.If) stmt;
-
       if (isTruthy(evaluate(ifStmt.condition))) {
         execute(ifStmt.thenBranch);
       } else if (ifStmt.elseBranch != null) {
@@ -120,10 +125,8 @@ class Interpreter {
 
   void executeBlock(List<Stmt> statements, Environment environment) {
     Environment previous = this.environment;
-
     try {
       this.environment = environment;
-
       for (Stmt statement : statements) {
         execute(statement);
       }
@@ -135,23 +138,37 @@ class Interpreter {
   // --- THE CORE EVALUATOR ---
   Object evaluate(Expr expr) {
 
+    // Use the calculated hop distance!
+    if (expr instanceof Variable) {
+      Variable varExpr = (Variable) expr;
+      Integer distance = locals.get(varExpr);
+      if (distance != null) {
+        return environment.getAt(distance, varExpr.name.lexeme);
+      } else {
+        return globals.get(varExpr.name);
+      }
+    }
+
+    // Use the calculated hop distance for assignment!
+    if (expr instanceof Assign) {
+      Assign assignExpr = (Assign) expr;
+      Object value = evaluate(assignExpr.value);
+
+      Integer distance = locals.get(assignExpr);
+      if (distance != null) {
+        environment.assignAt(distance, assignExpr.name, value);
+      } else {
+        globals.assign(assignExpr.name, value);
+      }
+      return value;
+    }
+
     if (expr instanceof Literal) {
       return ((Literal) expr).value;
     }
 
     if (expr instanceof Grouping) {
       return evaluate(((Grouping) expr).expression);
-    }
-
-    if (expr instanceof Variable) {
-      return environment.get(((Variable) expr).name);
-    }
-
-    if (expr instanceof Assign) {
-      Assign assignExpr = (Assign) expr;
-      Object value = evaluate(assignExpr.value);
-      environment.assign(assignExpr.name, value);
-      return value;
     }
 
     if (expr instanceof Unary) {
@@ -226,7 +243,6 @@ class Interpreter {
 
     if (expr instanceof Call) {
       Call call = (Call) expr;
-
       Object callee = evaluate(call.callee);
 
       List<Object> arguments = new ArrayList<>();

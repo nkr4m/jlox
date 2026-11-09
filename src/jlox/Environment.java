@@ -4,17 +4,17 @@ import java.util.HashMap;
 import java.util.Map;
 
 class Environment {
-  // NEW: The pointer to the parent scope (null if this is the global scope)
+  // The pointer to the parent scope (null if this is the global scope)
   final Environment enclosing;
   
   private final Map<String, Object> values = new HashMap<>();
 
-  // NEW: Constructor for the Global scope
+  // Constructor for the Global scope
   Environment() {
     enclosing = null;
   }
 
-  // NEW: Constructor for a Local scope inside a block
+  // Constructor for a Local scope inside a block
   Environment(Environment enclosing) {
     this.enclosing = enclosing;
   }
@@ -29,7 +29,7 @@ class Environment {
       return;
     }
 
-    // NEW: If not found here, travel up the chain to the parent
+    // If not found here, travel up the chain to the parent
     if (enclosing != null) {
       enclosing.assign(name, value);
       return;
@@ -43,9 +43,25 @@ class Environment {
       return values.get(name.lexeme);
     }
 
-    // NEW: If not found here, travel up the chain to the parent
+    // If not found here, travel up the chain to the parent
     if (enclosing != null) return enclosing.get(name);
 
     throw new RuntimeError(name, "Undefined variable '" + name.lexeme + "'.");
+  }
+
+  Object getAt(int distance, String name) {
+    return ancestor(distance).values.get(name);
+  }
+
+  void assignAt(int distance, Token name, Object value) {
+    ancestor(distance).values.put(name.lexeme, value);
+  }
+
+  private Environment ancestor(int distance) {
+    Environment environment = this;
+    for (int i = 0; i < distance; i++) {
+      environment = environment.enclosing;
+    }
+    return environment;
   }
 }
