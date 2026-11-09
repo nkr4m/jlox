@@ -5,9 +5,11 @@ import java.util.List;
 
 import jlox.ast.Assign;
 import jlox.ast.Binary;
+import jlox.ast.Call;
 import jlox.ast.Expr;
 import jlox.ast.Grouping;
 import jlox.ast.Literal;
+import jlox.ast.Logical;
 import jlox.ast.Stmt;
 import jlox.ast.Unary;
 import jlox.ast.Variable;
@@ -40,6 +42,8 @@ class Parser {
 
   // --- DECLARATIONS & STATEMENTS ---
   private Stmt declaration() {
+    if (match(TokenType.FUN))
+      return function("function"); // NEW
     if (match(TokenType.VAR))
       return varDeclaration();
     return statement();
@@ -58,14 +62,53 @@ class Parser {
   }
 
   private Stmt statement() {
+    if (match(TokenType.FOR))
+      return forStatement();
+    if (match(TokenType.IF))
+      return ifStatement();
     if (match(TokenType.PRINT))
       return printStatement();
-
-    // NEW: Check for a block!
+    if (match(TokenType.RETURN))
+      return returnStatement(); // NEW
+    if (match(TokenType.WHILE))
+      return whileStatement();
     if (match(TokenType.LEFT_BRACE))
       return new Stmt.Block(block());
 
     return expressionStatement();
+  }
+
+  private Stmt.Function function(String kind) {
+    Token name = consume(TokenType.IDENTIFIER, "Expect " + kind + " name.");
+    consume(TokenType.LEFT_PAREN, "Expect '(' after " + kind + " name.");
+
+    List<Token> parameters = new ArrayList<>();
+    if (!check(TokenType.RIGHT_PAREN)) {
+      do {
+        if (parameters.size() >= 255) {
+          error(peek(), "Can't have more than 255 parameters.");
+        }
+        parameters.add(consume(TokenType.IDENTIFIER, "Expect parameter name."));
+      } while (match(TokenType.COMMA));
+    }
+    consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters.");
+
+    consume(TokenType.LEFT_BRACE, "Expect '{' before " + kind + " body.");
+    List<Stmt> body = block();
+
+    return new Stmt.Function(name, parameters, body);
+  }
+
+  private Stmt returnStatement() {
+    Token keyword = previous();
+    Expr value = null;
+
+    if (!check(TokenType.SEMICOLON)) {
+      value = expression();
+    }
+
+    consume(TokenType.SEMICOLON, "Expect ';' after return value.");
+    return new Stmt.Return(keyword, value);
   }
 
   private Stmt printStatement() {
@@ -86,7 +129,7 @@ class Parser {
   }
 
   private Expr assignment() {
-    Expr expr = equality();
+    Expr expr = or(); // <-- CHANGED: Step down to or()
 
     if (match(TokenType.EQUAL)) {
       Token equals = previous();
@@ -98,6 +141,32 @@ class Parser {
       }
 
       error(equals, "Invalid assignment target.");
+    }
+
+    return expr;
+  }
+
+  // NEW: The 'or' logic
+  private Expr or() {
+    Expr expr = and();
+
+    while (match(TokenType.OR)) {
+      Token operator = previous();
+      Expr right = and();
+      expr = new Logical(expr, operator, right);
+    }
+
+    return expr;
+  }
+
+  // NEW: The 'and' logic
+  private Expr and() {
+    Expr expr = equality();
+
+    while (match(TokenType.AND)) {
+      Token operator = previous();
+      Expr right = equality();
+      expr = new Logical(expr, operator, right);
     }
 
     return expr;
@@ -158,7 +227,40 @@ class Parser {
       return new Unary(operator, right);
     }
 
-    return primary();
+    return call();
+  }
+
+  private Expr call() {
+    Expr expr = primary();
+
+    while (true) {
+      // If we see a '(', it means the expression we just parsed is being called
+      if (match(TokenType.LEFT_PAREN)) {
+        expr = finishCall(expr);
+      } else {
+        break;
+      }
+    }
+
+    return expr;
+  }
+
+  private Expr finishCall(Expr callee) {
+    List<Expr> arguments = new ArrayList<>();
+
+    // Parse arguments until we hit the closing ')'
+    if (!check(TokenType.RIGHT_PAREN)) {
+      do {
+        if (arguments.size() >= 255) {
+          error(peek(), "Can't have more than 255 arguments.");
+        }
+        arguments.add(expression());
+      } while (match(TokenType.COMMA));
+    }
+
+    Token paren = consume(TokenType.RIGHT_PAREN, "Expect ')' after arguments.");
+
+    return new Call(callee, paren, arguments);
   }
 
   private Expr primary() {
@@ -244,6 +346,85 @@ class Parser {
   private ParseError error(Token token, String message) {
     Lox.error(token, message);
     return new ParseError();
+  }
+
+  private Stmt ifStatement() {
+    consume(TokenType.LEFT_PAREN, "Expect '(' after 'if'.");
+    Expr condition = expression();
+    consume(TokenType.RIGHT_PAREN, "Expect ')' after if condition.");
+
+    Stmt thenBranch = statement();
+    Stmt elseBranch = null;
+
+    // If we see an 'else', aggressively bind it to this 'if'
+    if (match(TokenType.ELSE)) {
+      elseBranch = statement();
+    }
+
+    return new Stmt.If(condition, thenBranch, elseBranch);
+  }
+
+  private Stmt whileStatement() {
+    consume(TokenType.LEFT_PAREN, "Expect '(' after 'while'.");
+    Expr condition = expression();
+    consume(TokenType.RIGHT_PAREN, "Expect ')' after condition.");
+
+    Stmt body = statement();
+
+    return new Stmt.While(condition, body);
+  }
+
+  private Stmt forStatement() {
+    consume(TokenType.LEFT_PAREN, "Expect '(' after 'for'.");
+
+    // 1. Grab the initializer (var i = 0;)
+    Stmt initializer;
+    if (match(TokenType.SEMICOLON)) {
+      initializer = null;
+    } else if (match(TokenType.VAR)) {
+      initializer = varDeclaration();
+    } else {
+      initializer = expressionStatement();
+    }
+
+    // 2. Grab the condition (i < 10;)
+    Expr condition = null;
+    if (!check(TokenType.SEMICOLON)) {
+      condition = expression();
+    }
+    consume(TokenType.SEMICOLON, "Expect ';' after loop condition.");
+
+    // 3. Grab the increment (i = i + 1)
+    Expr increment = null;
+    if (!check(TokenType.RIGHT_PAREN)) {
+      increment = expression();
+    }
+    consume(TokenType.RIGHT_PAREN, "Expect ')' after for clauses.");
+
+    // 4. Grab the body statement
+    Stmt body = statement();
+
+    // --- DESUGARING (Translating to While) ---
+
+    // A. If there is an increment, append it to the end of the body block
+    if (increment != null) {
+      body = new Stmt.Block(
+          java.util.Arrays.asList(body, new Stmt.Expression(increment)));
+    }
+
+    // B. Wrap the body in a standard While loop (defaulting to 'true' if no
+    // condition)
+    if (condition == null)
+      condition = new Literal(true);
+    body = new Stmt.While(condition, body);
+
+    // C. If there is an initializer, wrap everything in an outer block so the
+    // initializer runs once first
+    if (initializer != null) {
+      body = new Stmt.Block(java.util.Arrays.asList(initializer, body));
+    }
+
+    return body; // The Interpreter will just see a Block containing a While loop!
   }
 
   private void synchronize() {

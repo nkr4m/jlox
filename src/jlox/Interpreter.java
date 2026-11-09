@@ -1,12 +1,15 @@
 package jlox;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import jlox.ast.Assign;
 import jlox.ast.Binary;
+import jlox.ast.Call;
 import jlox.ast.Expr;
 import jlox.ast.Grouping;
 import jlox.ast.Literal;
+import jlox.ast.Logical;
 import jlox.ast.Stmt;
 import jlox.ast.Unary;
 import jlox.ast.Variable;
@@ -14,7 +17,28 @@ import jlox.ast.Variable;
 class Interpreter {
 
   // --- THE GLOBAL MEMORY ---
-  private Environment environment = new Environment();
+  public final Environment globals = new Environment();
+  private Environment environment = globals;
+
+  // NEW: Constructor to inject native functions
+  public Interpreter() {
+    globals.define("clock", new LoxCallable() {
+      @Override
+      public int arity() {
+        return 0;
+      }
+
+      @Override
+      public Object call(Interpreter interpreter, List<Object> arguments) {
+        return (double) System.currentTimeMillis() / 1000.0;
+      }
+
+      @Override
+      public String toString() {
+        return "<native fn>";
+      }
+    });
+  }
 
   // --- THE PUBLIC API ---
   void interpret(List<Stmt> statements) {
@@ -27,67 +51,102 @@ class Interpreter {
     }
   }
 
-  // --- STATEMENT EXECUTOR (No Visitor Pattern) ---
   private void execute(Stmt stmt) {
-    if (stmt instanceof Stmt.Print) {
-      // ... existing code
-      return;
-    }
-    if (stmt instanceof Stmt.Var) {
-      // ... existing code
-      return;
-    }
-    if (stmt instanceof Stmt.Expression) {
-      // ... existing code
+
+    // NEW: Route Function Declarations
+    if (stmt instanceof Stmt.Function) {
+      Stmt.Function function = (Stmt.Function) stmt;
+      // Wrap the AST node and capture the current environment (closure)
+      LoxFunction loxFunction = new LoxFunction(function, this.environment);
+      // Store the function in memory under its name
+      environment.define(function.name.lexeme, loxFunction);
       return;
     }
 
-    // NEW: Route the Block node!
+    // NEW: Route Return Statements
+    if (stmt instanceof Stmt.Return) {
+      Object value = null;
+      if (((Stmt.Return) stmt).value != null) {
+        value = evaluate(((Stmt.Return) stmt).value);
+      }
+      // Fire the Exception to instantly break out of execution
+      throw new Return(value);
+    }
+
     if (stmt instanceof Stmt.Block) {
-      // Create a brand new local Environment, passing the current global/parent one
-      // into the constructor
       executeBlock(((Stmt.Block) stmt).statements, new Environment(this.environment));
+      return;
+    }
+
+    if (stmt instanceof Stmt.If) {
+      Stmt.If ifStmt = (Stmt.If) stmt;
+
+      if (isTruthy(evaluate(ifStmt.condition))) {
+        execute(ifStmt.thenBranch);
+      } else if (ifStmt.elseBranch != null) {
+        execute(ifStmt.elseBranch);
+      }
+      return;
+    }
+
+    if (stmt instanceof Stmt.Print) {
+      Object value = evaluate(((Stmt.Print) stmt).expression);
+      System.out.println(stringify(value));
+      return;
+    }
+
+    if (stmt instanceof Stmt.Var) {
+      Object value = null;
+      if (((Stmt.Var) stmt).initializer != null) {
+        value = evaluate(((Stmt.Var) stmt).initializer);
+      }
+      environment.define(((Stmt.Var) stmt).name.lexeme, value);
+      return;
+    }
+
+    if (stmt instanceof Stmt.Expression) {
+      evaluate(((Stmt.Expression) stmt).expression);
+      return;
+    }
+
+    if (stmt instanceof Stmt.While) {
+      Stmt.While whileStmt = (Stmt.While) stmt;
+      while (isTruthy(evaluate(whileStmt.condition))) {
+        execute(whileStmt.body);
+      }
       return;
     }
   }
 
   void executeBlock(List<Stmt> statements, Environment environment) {
-    // 1. Save a pointer to the current (outer) environment
     Environment previous = this.environment;
 
     try {
-      // 2. Swap the active environment to the new local one
       this.environment = environment;
 
-      // 3. Execute all statements inside the block
       for (Stmt statement : statements) {
         execute(statement);
       }
     } finally {
-      // 4. Restore the outer environment when the block ends
       this.environment = previous;
     }
   }
 
-  // --- THE CORE EVALUATOR (No Visitor Pattern) ---
+  // --- THE CORE EVALUATOR ---
   Object evaluate(Expr expr) {
 
-    // 1. LITERALS
     if (expr instanceof Literal) {
       return ((Literal) expr).value;
     }
 
-    // 2. GROUPING
     if (expr instanceof Grouping) {
       return evaluate(((Grouping) expr).expression);
     }
 
-    // 3. VARIABLE ACCESS (print a;)
     if (expr instanceof Variable) {
       return environment.get(((Variable) expr).name);
     }
 
-    // 4. VARIABLE ASSIGNMENT (a = 2;)
     if (expr instanceof Assign) {
       Assign assignExpr = (Assign) expr;
       Object value = evaluate(assignExpr.value);
@@ -95,7 +154,6 @@ class Interpreter {
       return value;
     }
 
-    // 5. UNARY
     if (expr instanceof Unary) {
       Unary unary = (Unary) expr;
       Object right = evaluate(unary.right);
@@ -109,7 +167,21 @@ class Interpreter {
       }
     }
 
-    // 6. BINARY
+    if (expr instanceof Logical) {
+      Logical logical = (Logical) expr;
+      Object left = evaluate(logical.left);
+
+      if (logical.operator.type == TokenType.OR) {
+        if (isTruthy(left))
+          return left;
+      } else {
+        if (!isTruthy(left))
+          return left;
+      }
+
+      return evaluate(logical.right);
+    }
+
     if (expr instanceof Binary) {
       Binary binary = (Binary) expr;
       Object left = evaluate(binary.left);
@@ -152,10 +224,35 @@ class Interpreter {
       }
     }
 
+    if (expr instanceof Call) {
+      Call call = (Call) expr;
+
+      Object callee = evaluate(call.callee);
+
+      List<Object> arguments = new ArrayList<>();
+      for (Expr argument : call.arguments) {
+        arguments.add(evaluate(argument));
+      }
+
+      if (!(callee instanceof LoxCallable)) {
+        throw new RuntimeError(call.paren, "Can only call functions and classes.");
+      }
+
+      LoxCallable function = (LoxCallable) callee;
+
+      if (arguments.size() != function.arity()) {
+        throw new RuntimeError(call.paren, "Expected " +
+            function.arity() + " arguments but got " +
+            arguments.size() + ".");
+      }
+
+      return function.call(this, arguments);
+    }
+
     return null;
   }
 
-  // --- TYPE CHECKERS (Runtime Error Guards) ---
+  // --- TYPE CHECKERS ---
   private void checkNumberOperand(Token operator, Object operand) {
     if (operand instanceof Double)
       return;
